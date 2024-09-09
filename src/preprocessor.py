@@ -21,7 +21,7 @@ def range_check(window_vals, UL, LL, all_vals):
     if all_vals:
         for i in range(len(window_vals)):
             if (window_vals[i] > UL) or (window_vals[i] < LL):
-                temp = get_excluder_arr(window_vals, i)
+                temp = window_vals[:i] + window_vals[i+1:]
                 window_vals[i] = mean(temp)
     else:
         if (window_vals[-1] > UL) or (window_vals[-1] < LL):
