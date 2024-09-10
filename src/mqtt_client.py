@@ -1,5 +1,8 @@
 import paho.mqtt.client as mqtt
 import json
+from datetime import datetime
+import pytz
+from dateutil import parser
 
 class MQTTClient:
 
@@ -14,21 +17,39 @@ class MQTTClient:
 
 
     def on_connect(self, client, userdata, flags, rc):
-        print(f"Connected with result code {rc}")
+        print(f"Connected successfully")
         client.subscribe(self.topic)
 
 
     def on_message(self, client, userdata, msg):
         try:
+            # Decode the payload
             payload = json.loads(msg.payload.decode())
-            value = float(payload['value'])
-            timestamp = payload['time']
-            reading = (value, timestamp)
-            print(f"MQTT received reading: {reading}")
+            
+            # Extract relevant information
+            value = float(payload['state'])
+            data = payload.get('data', {})
+            
+            # Extract additional information from the 'data' field
+            device_class = data.get('device_class', 'unknown')
+            unit_of_measurement = data.get('unit_of_measurement', 'unknown')
+            last_changed = data.get('last_changed', None)
+            time_since_changed_ms = data.get('timeSinceChangedMs', None)
+            # Parse the last_changed timestamp if available
+            if last_changed:
+                timestamp = parser.isoparse(last_changed)
+                human_time = timestamp.strftime('%H:%M:%S')
+            else:
+                timestamp = None
+                human_time = None
+            
+            # Log the reading and metadata
+            reading = (value, human_time, device_class, unit_of_measurement)
+            # Store the reading
             self.readings.append(reading)
-        except ValueError:
-            print("Failed to decode message")
 
+        except (ValueError, KeyError) as e:
+            print(f"Failed to decode message: {e}")
 
     def connect(self):
         self.client.connect(self.broker_address, self.broker_port, 60)
