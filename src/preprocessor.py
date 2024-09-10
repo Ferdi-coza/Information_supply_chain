@@ -30,15 +30,6 @@ def range_check(window_vals, UL, LL, all_vals):
 
     return window_vals
 
-
-def get_excluder_arr(arr, index):
-    excluded = []
-    excluded += arr[:index]
-    excluded += arr[index+1:]
-    return excluded
-
-
-
 def main():
     window = [10,9,10,100,13,14,10]
     print(range_check(window, 75, -12, True))
