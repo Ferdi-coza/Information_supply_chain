@@ -28,7 +28,7 @@ class SlidingWindow:
         return list(self.window)
 
 
-    def get_buf_vals(self):
+    def get_win_vals(self):
         obj_list = list(self.window)
         vals_list = []
 
@@ -38,7 +38,7 @@ class SlidingWindow:
         return vals_list
     
 
-    def get_buf_times(self):
+    def get_win_times(self):
         obj_list = list(self.window)
         times_list = []
 
@@ -46,10 +46,22 @@ class SlidingWindow:
             times_list.append(obj_list[i].get_time())
         
         return times_list
+    
+
+    def get_sensor_type(self):
+        readings = list(self.window)
+        return readings[0].sensor_type
+    
+
+    def change_val(self, index, new_val):
+        readings = list(self.window)
+        readings[index].value = new_val
         
 
     def is_full(self):
         return len(self.window) >= self.size
+    
+
     
     
     
