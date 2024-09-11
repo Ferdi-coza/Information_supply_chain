@@ -2,11 +2,28 @@ from mqtt_client import MQTTClient
 from sliding_window import SlidingWindow
 from data_point import DataPoint
 from preprocessor import is_const_err, range_check, med_filter
+from datetime import timedelta
+
 import sys
 import time
 import csv
 
 def main():
+    """
+    Main function that initiates the MQTT client or CSV processing based on command-line arguments.
+    
+    For "mqtt" DYNAMIC mode:
+        Connects to the MQTT broker, retrieves readings, processes them, and logs to CSV.
+
+    For "csv" STATIC mode:
+        Cleans data from the specified CSV file and writes it back to a new cleaned CSV file.
+
+    Args:
+        None (but uses command-line arguments for "mqtt" or "csv" mode).
+
+    Returns:
+        None
+    """
     if sys.argv[1] == "mqtt":
         # Set up and start the MQTT client
         broker_address = "smartdigitalsystems.duckdns.org"
@@ -26,6 +43,7 @@ def main():
     window = SlidingWindow(10)
     clean_vals = []
     num_reads = 1
+    last_changed = [0, 0]  #value, timestamp
     
 
     try:
@@ -52,14 +70,18 @@ def main():
             
             ###################### Preprocess new readings #####################
             if window.is_full() and reading:
-                print(f"window before PP: {window.get_win_vals()}")
+                #print(f"window before PP: {window.get_win_vals()}")
+                
+                if num_reads == 10:
+                    last_changed[0] = window.get_win_vals()[0].value
+                    last_changed[1] = window.get_win_times()[0].time_stamp
+            
                 #check for constant error sensor fault
-                if is_const_err(window.get_win_vals(), 0.00001):
+                if is_const_err(window, last_changed, get_max_time(window)):
                     print("CONSTANT ERROR DETECTED")
 
                 #perform range check on current window
                 if num_reads == 10:
-                    print("all vals getting checked")
                     range_check(window, get_UL(window), get_LL(window), True)
                 else:
                     range_check(window, get_UL(window), get_LL(window), False)
@@ -67,7 +89,7 @@ def main():
                 #perform median filtering to smooth data
                 med_filter(window, 3)
 
-                print(f"window after PP : {window.get_win_vals()}")
+                #print(f"window after PP : {window.get_win_vals()}")
             
             
             client.clear_readings()
@@ -80,8 +102,16 @@ def main():
 
 
 def get_UL(window):
-    sensor_type = window.get_sensor_type()
+    """
+    Get the upper limit (UL) for a sensor based on its type.
 
+    Args:
+        window (SlidingWindow): The sliding window object containing sensor readings.
+
+    Returns:
+        float: The upper limit for the specified sensor type.
+    """
+    sensor_type = window.get_sensor_type()
     if sensor_type == "voltage_sensor":
         UL = 300
 
@@ -89,17 +119,52 @@ def get_UL(window):
 
 
 def get_LL(window):
+    """
+    Get the lower limit (LL) for a sensor based on its type.
+
+    Args:
+        window (SlidingWindow): The sliding window object containing sensor readings.
+
+    Returns:
+        float: The lower limit for the specified sensor type.
+    """
     sensor_type = window.get_sensor_type()
-
-
     if sensor_type == "voltage_sensor":
         LL = -1
 
     return LL
 
 
-def run_csv(file_path):
+def get_max_time(window):
+    """
+    Retrieve the maximum allowed time for readings based on the sensor type.
+
+    Args:
+        window (SlidingWindow): The sliding window object containing sensor readings.
+
+    Returns:
+        timedelta: The maximum time allowed for readings from the sensor.
+    """
+    sensor_type = window.get_sensor_type()
+    max_time = 0
+    
+    if sensor_type == "voltage_sensor":
+        max_time = timedelta(minutes=30)
+    
+    return max_time
+
+def run_csv(file_path, last_changed):
+    """
+    Clean data from a CSV file by processing sensor readings and applying filters.
+
+    Args:
+        file_path (str): The path to the CSV file containing raw data.
+
+    Returns:
+        list: A list of cleaned DataPoint objects.
+    """
     data_points = csv_to_datapoints(file_path)
+    print(data_points)
     cleaned_data = []
     window = SlidingWindow(10)
     
@@ -108,8 +173,12 @@ def run_csv(file_path):
         first_window = True
     
     while data_points:
+        if first_window:
+            last_changed[0] = window.get_win_vals()[0].value
+            last_changed[1] = window.get_win_times()[0].time_stamp
+
         #check for constant error sensor fault
-        if is_const_err(window.get_win_vals(), 0.00001):
+        if is_const_err(window, last_changed, get_max_time(window)):
             print("CONSTANT ERROR DETECTED")
 
         #perform range check on current window
@@ -127,11 +196,17 @@ def run_csv(file_path):
     
     return cleaned_data
         
-        
-        
-    
 
 def csv_to_datapoints(file_path):
+    """
+    Convert data from a CSV file into a list of DataPoint objects.
+
+    Args:
+        file_path (str): The path to the CSV file.
+
+    Returns:
+        list: A list of DataPoint objects created from the CSV rows.
+    """
     data_points = []
 
     with open(file_path, mode='r') as file:
@@ -158,7 +233,17 @@ def csv_to_datapoints(file_path):
 
 
 def datapoints_to_csv(data_points, file_type, write_all):
-    
+    """
+    Write a list of DataPoint objects to a CSV file.
+
+    Args:
+        data_points (list): The list of DataPoint objects to write.
+        file_type (str): The type of file being written ("raw" or "clean").
+        write_all (bool): Whether to overwrite the file (True) or append to it (False).
+
+    Returns:
+        None
+    """
     file_path = "../data/" + file_type + "_" + data_points[0].sensor_type + ".csv"
     
     mode = 'w' if write_all else 'a'
@@ -168,7 +253,7 @@ def datapoints_to_csv(data_points, file_type, write_all):
 
         # Write the header
         if write_all:
-            csv_writer.writerow(['state', 'time', 'device', 'unit'])
+            csv_writer.writerow(['State', 'Time', 'Device', 'Unit'])
 
         # Iterate through the DataPoint objects and write each to a row
         for data_point in data_points:
