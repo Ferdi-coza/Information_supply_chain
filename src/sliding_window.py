@@ -122,6 +122,15 @@ class SlidingWindow:
         readings = list(self.window)
         readings[index].value = new_val
         
+    
+    def as_list(self):
+        """_summary_
+
+        Returns:
+            list: The window represented as a list
+        """
+        return list(self.window)
+        
 
     def is_full(self):
         """

@@ -7,6 +7,22 @@ Module containing all functions needed to Preprocess the data:
 from statistics import median, mean
 from datetime import datetime
 
+
+def do_EMA(window, last_EMA, alpha):
+    window_vals = window.get_win_vals()
+    latest_val = window_vals[-1]
+    
+    #determine new EMA value
+    new_EMA = alpha * latest_val + ((1 - alpha) * last_EMA)
+    
+    #update last reading to new EMA value
+    window.change_val(-1, new_EMA)
+    
+    #update last EMA
+    last_EMA = new_EMA
+    return last_EMA
+    
+
 def is_const_err(window, last_changed, max_time):
     """
     Check if the sensor is experiencing a constant error, where the latest value

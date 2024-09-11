@@ -1,9 +1,10 @@
 from mqtt_client import MQTTClient
 from sliding_window import SlidingWindow
 from data_point import DataPoint
-from preprocessor import is_const_err, range_check, med_filter
+from preprocessor import is_const_err, range_check, med_filter, do_EMA
 from datetime import timedelta
-
+from dotenv import load_dotenv
+import os
 import sys
 import time
 import csv
@@ -28,21 +29,24 @@ def main():
     clean_vals = []
     num_reads = 1
     last_changed = [0, 0]  #value, timestamp
+    last_EMA = 0
     
     
     if sys.argv[1] == "mqtt":
+        #load environment variables
+        load_dotenv()
         # Set up and start the MQTT client
-        broker_address = "smartdigitalsystems.duckdns.org"
-        broker_port = 1883
-        topic = "dl30-solar/sensor/panel_voltage/state_REG"
+        broker_address = os.getenv("MQTT_BROKER")
+        broker_port = int(os.getenv("MQTT_PORT"))
+        topic = os.getenv(sys.argv[2])
         mqtt_client = MQTTClient(broker_address, broker_port, topic)
         mqtt_client.connect()
         mqtt_client.start()
         client = mqtt_client
         
     if sys.argv[1] == "csv":
-        cleaned_data = run_csv(sys.argv[2], last_changed)
-        datapoints_to_csv(cleaned_data, "clean", True)
+        cleaned_data = run_csv(sys.argv[2], last_changed, last_EMA)
+        datapoints_to_csv(cleaned_data, "clean_ema", True)
         print("new cleaned data csv made")
         return
     
@@ -59,6 +63,7 @@ def main():
                 
                 if num_reads == 1:
                     datapoints_to_csv([reading], "raw", True)
+                    last_EMA = reading.value
                 else: datapoints_to_csv([reading], "raw", False)
                 num_reads += 1
                 
@@ -154,7 +159,7 @@ def get_max_time(window):
     
     return max_time
 
-def run_csv(file_path, last_changed):
+def run_csv(file_path, last_changed, last_EMA):
     """
     Clean data from a CSV file by processing sensor readings and applying filters.
 
@@ -176,6 +181,7 @@ def run_csv(file_path, last_changed):
         if first_window:
             last_changed[0] = window.get_win_vals()[-1]
             last_changed[1] = window.get_win_times()[-1]
+            last_EMA = window.get_win_vals()[-1]
 
         #check for constant error sensor fault
         if is_const_err(window, last_changed, get_max_time(window)):
@@ -187,6 +193,9 @@ def run_csv(file_path, last_changed):
             range_check(window, get_UL(window), get_LL(window), True)
         else:
             range_check(window, get_UL(window), get_LL(window), False)
+            
+        #perform EMA smoothing
+        last_EMA = do_EMA(window, last_EMA, 0.4)
 
         #perform median filtering to smooth data
         med_filter(window, 3)
@@ -194,6 +203,7 @@ def run_csv(file_path, last_changed):
         cleaned_val = window.slide_next(data_points.pop(0))
         cleaned_data.append(cleaned_val)
     
+    cleaned_data += window.as_list()
     return cleaned_data
         
 
