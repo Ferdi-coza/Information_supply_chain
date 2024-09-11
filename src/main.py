@@ -24,6 +24,12 @@ def main():
     Returns:
         None
     """
+    window = SlidingWindow(10)
+    clean_vals = []
+    num_reads = 1
+    last_changed = [0, 0]  #value, timestamp
+    
+    
     if sys.argv[1] == "mqtt":
         # Set up and start the MQTT client
         broker_address = "smartdigitalsystems.duckdns.org"
@@ -35,15 +41,10 @@ def main():
         client = mqtt_client
         
     if sys.argv[1] == "csv":
-        cleaned_data = run_csv(sys.argv[2])
+        cleaned_data = run_csv(sys.argv[2], last_changed)
         datapoints_to_csv(cleaned_data, "clean", True)
         print("new cleaned data csv made")
-        
-    
-    window = SlidingWindow(10)
-    clean_vals = []
-    num_reads = 1
-    last_changed = [0, 0]  #value, timestamp
+        return
     
 
     try:
@@ -73,8 +74,8 @@ def main():
                 #print(f"window before PP: {window.get_win_vals()}")
                 
                 if num_reads == 10:
-                    last_changed[0] = window.get_win_vals()[0].value
-                    last_changed[1] = window.get_win_times()[0].time_stamp
+                    last_changed[0] = window.get_win_vals()[-1]
+                    last_changed[1] = window.get_win_times()[-1]
             
                 #check for constant error sensor fault
                 if is_const_err(window, last_changed, get_max_time(window)):
@@ -164,7 +165,6 @@ def run_csv(file_path, last_changed):
         list: A list of cleaned DataPoint objects.
     """
     data_points = csv_to_datapoints(file_path)
-    print(data_points)
     cleaned_data = []
     window = SlidingWindow(10)
     
@@ -174,8 +174,8 @@ def run_csv(file_path, last_changed):
     
     while data_points:
         if first_window:
-            last_changed[0] = window.get_win_vals()[0].value
-            last_changed[1] = window.get_win_times()[0].time_stamp
+            last_changed[0] = window.get_win_vals()[-1]
+            last_changed[1] = window.get_win_times()[-1]
 
         #check for constant error sensor fault
         if is_const_err(window, last_changed, get_max_time(window)):
