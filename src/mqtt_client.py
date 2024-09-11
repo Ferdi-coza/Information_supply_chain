@@ -1,7 +1,5 @@
 import paho.mqtt.client as mqtt
 import json
-from datetime import datetime
-import pytz
 from dateutil import parser
 
 class MQTTClient:
@@ -34,7 +32,6 @@ class MQTTClient:
             device_class = data.get('device_class', 'unknown')
             unit_of_measurement = data.get('unit_of_measurement', 'unknown')
             last_changed = data.get('last_changed', None)
-            time_since_changed_ms = data.get('timeSinceChangedMs', None)
             # Parse the last_changed timestamp if available
             if last_changed:
                 timestamp = parser.isoparse(last_changed)
