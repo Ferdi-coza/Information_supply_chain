@@ -31,8 +31,21 @@ def main():
     last_changed = [0, 0]  #value, timestamp
     last_EMA = 0
     
+    if (len(sys.argv) != 2) or (sys.argv[1] not in ("params", "mqtt", "csv")):
+        print("Invalid program arguments")
+        print("Run <python/python3 main.py params> to see parameter options")
+        return
+        
     
-    if sys.argv[1] == "mqtt":
+    if sys.argv[1] == "params":
+        print("For Dynamic sensor readings: argv 1 = mqtt:")
+        print("         argv 2 = panel_voltage | battery_voltage | water_temp | illuminance | ph")
+        print()
+        print("For Static data from csv file: argv 1 = csv")
+        print("         argv 2 = csv file path eg ../Data/<csv_filename.csv>")
+        return
+    
+    elif sys.argv[1] == "mqtt":
         #load environment variables
         load_dotenv()
         # Set up and start the MQTT client
@@ -44,13 +57,12 @@ def main():
         mqtt_client.start()
         client = mqtt_client
         
-    if sys.argv[1] == "csv":
+    elif sys.argv[1] == "csv":
         cleaned_data = run_csv(sys.argv[2], last_changed, last_EMA)
         datapoints_to_csv(cleaned_data, "clean_ema", True)
         print("new cleaned data csv made")
         return
     
-
     try:
         while True:
             ################### retrieve and format new reading ###################
