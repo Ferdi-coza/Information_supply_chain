@@ -1,7 +1,8 @@
 from mqtt_client import MQTTClient
 from sliding_window import SlidingWindow
 from data_point import DataPoint
-from preprocessor import is_const_err, range_check, med_filter, do_EMA
+from preprocessor import range_check, med_filter, do_EMA, is_null
+from err_detections import is_const_err, CUSUM
 from datetime import timedelta
 from dotenv import load_dotenv
 import os
@@ -25,23 +26,22 @@ def main():
     Returns:
         None
     """
-    window = SlidingWindow(10)
-    clean_vals = []
-    num_reads = 1
     last_changed = [0, 0]  #value, timestamp
     last_EMA = 0
     
-    if (len(sys.argv) != 2) or (sys.argv[1] not in ("params", "mqtt", "csv")):
+    if (len(sys.argv) != 3) or (sys.argv[1] not in ("params", "mqtt", "csv")):
         print("Invalid program arguments")
         print("Run <python/python3 main.py params> to see parameter options")
         return
         
     
     if sys.argv[1] == "params":
-        print("For Dynamic sensor readings: argv 1 = mqtt:")
-        print("         argv 2 = panel_voltage | battery_voltage | water_temp | illuminance | ph")
+        print("For Dynamic sensor readings:")
+        print("     argv 1 = mqtt")
+        print("         argv 2 = pvolt | bvolt | temp | illum | ph | humid")
         print()
-        print("For Static data from csv file: argv 1 = csv")
+        print("For Static data from csv file:")
+        print("     argv 1 = csv")
         print("         argv 2 = csv file path eg ../Data/<csv_filename.csv>")
         return
     
@@ -56,12 +56,24 @@ def main():
         mqtt_client.connect()
         mqtt_client.start()
         client = mqtt_client
+        run_sensors(client, last_changed, last_EMA)
         
     elif sys.argv[1] == "csv":
         cleaned_data = run_csv(sys.argv[2], last_changed, last_EMA)
         datapoints_to_csv(cleaned_data, "clean", True)
         print("new cleaned data csv made")
         return
+    
+    
+
+################################ DYNAMIC SENSOR READINGS ################################
+
+def run_sensors(client, last_changed, last_EMA):
+    window = SlidingWindow(10)
+    CT_plus_win = SlidingWindow(10)
+    CT_min_win = SlidingWindow(10)
+    clean_vals = []
+    num_reads = 1
     
     try:
         while True:
@@ -73,10 +85,16 @@ def main():
                 print(f"Reading number {num_reads} is: {raw_reading}")
                 reading = DataPoint(raw_reading[0], raw_reading[1], raw_reading[2], raw_reading[3])
                 
+                #check for Null values
+                if is_null(reading):
+                    reading = None
+                    num_reads -= 1
+                
                 if num_reads == 1:
                     datapoints_to_csv([reading], "raw", True)
                     last_EMA = reading.value
-                else: datapoints_to_csv([reading], "raw", False)
+                else: 
+                    datapoints_to_csv([reading], "raw", False)
                 num_reads += 1
                 
             if reading and window.is_full():
@@ -88,7 +106,6 @@ def main():
             
             ###################### Preprocess new readings #####################
             if window.is_full() and reading:
-                #print(f"window before PP: {window.get_win_vals()}")
                 
                 if num_reads == 10:
                     last_changed[0] = window.get_win_vals()[-1]
@@ -103,73 +120,33 @@ def main():
                     range_check(window, get_UL(window), get_LL(window), True)
                 else:
                     range_check(window, get_UL(window), get_LL(window), False)
+                    
+                #perform EMA smoothing
+                last_EMA = do_EMA(window, last_EMA, 0.4)
 
                 #perform median filtering to smooth data
                 med_filter(window, 3)
+                
+            ######################### Error Detection ##########################
+                no_err = CUSUM(CT_plus_win, CT_min_win, window.get_win_vals())
+                if not no_err:
+                    print("Drift detected in CUSUM")
+                print(f"CT plus values: {CT_min_win.as_list()}")
+                print(f"CT minus values: {CT_min_win.as_list()}")
+                
+                
+            
 
-                #print(f"window after PP : {window.get_win_vals()}")
-            
-            
+                
             client.clear_readings()
             time.sleep(1)
 
-
     except KeyboardInterrupt:
         # Stop the MQTT client correctly
-        mqtt_client.stop()
+        client.stop()
 
 
-def get_UL(window):
-    """
-    Get the upper limit (UL) for a sensor based on its type.
-
-    Args:
-        window (SlidingWindow): The sliding window object containing sensor readings.
-
-    Returns:
-        float: The upper limit for the specified sensor type.
-    """
-    sensor_type = window.get_sensor_type()
-    if sensor_type == "voltage_sensor":
-        UL = 300
-
-    return UL
-
-
-def get_LL(window):
-    """
-    Get the lower limit (LL) for a sensor based on its type.
-
-    Args:
-        window (SlidingWindow): The sliding window object containing sensor readings.
-
-    Returns:
-        float: The lower limit for the specified sensor type.
-    """
-    sensor_type = window.get_sensor_type()
-    if sensor_type == "voltage_sensor":
-        LL = -1
-
-    return LL
-
-
-def get_max_time(window):
-    """
-    Retrieve the maximum allowed time for readings based on the sensor type.
-
-    Args:
-        window (SlidingWindow): The sliding window object containing sensor readings.
-
-    Returns:
-        timedelta: The maximum time allowed for readings from the sensor.
-    """
-    sensor_type = window.get_sensor_type()
-    max_time = 0
-    
-    if sensor_type == "voltage_sensor":
-        max_time = timedelta(minutes=30)
-    
-    return max_time
+################################ STATIC CSV READINGS ################################
 
 def run_csv(file_path, last_changed, last_EMA):
     """
@@ -184,9 +161,14 @@ def run_csv(file_path, last_changed, last_EMA):
     data_points = csv_to_datapoints(file_path)
     cleaned_data = []
     window = SlidingWindow(10)
+    CT_plus_win = SlidingWindow(10)
+    CT_min_win = SlidingWindow(10)
     
     while not window.is_full():
-        window.add_reading(data_points.pop(0))
+        if not is_null(data_points[0]):
+            window.add_reading(data_points.pop(0))
+        else:
+            data_points.pop(0)
         first_window = True
     
     while data_points:
@@ -211,13 +193,132 @@ def run_csv(file_path, last_changed, last_EMA):
 
         #perform median filtering to smooth data
         med_filter(window, 3)
+        
+        #error detection with CUSUM
+        no_err = CUSUM(CT_plus_win, CT_min_win, window.get_win_vals())
+        if not no_err:
+            print("Drift detected in CUSUM")
 
+        while len(data_points) > 0 and is_null(data_points[0]):
+            data_points.pop(0)
+        
         cleaned_val = window.slide_next(data_points.pop(0))
         cleaned_data.append(cleaned_val)
     
     cleaned_data += window.as_list()
     return cleaned_data
+
+
+################################ UTILITY FUNCTIONS ################################
+
+def get_UL(window):
+    """
+    Get the upper limit (UL) for a sensor based on its type.
+
+    Args:
+        window (SlidingWindow): The sliding window object containing sensor readings.
+
+    Returns:
+        float: The upper limit for the specified sensor type.
+    """
+    sensor_type = window.get_sensor_type()
+    if sensor_type == "Pvoltage_sensor":
+        UL = 50
+    
+    if sensor_type == "Bvoltage_sensor":
+        UL = 50
         
+    if sensor_type == 'SSTEMP_sensor':
+        UL = 45
+        
+    if sensor_type == 'illuminance_sensor':
+        UL = 130_000
+        
+    if sensor_type == 'SSHUM_sensor':
+        UL = 85
+        
+    if sensor_type == 'PH_sensor':
+        UL = 50
+    
+    if sensor_type == 'WINDDIR_sensor':
+        UL = 360
+    
+    return UL
+
+
+def get_LL(window):
+    """
+    Get the lower limit (LL) for a sensor based on its type.
+
+    Args:
+        window (SlidingWindow): The sliding window object containing sensor readings.
+
+    Returns:
+        float: The lower limit for the specified sensor type.
+    """
+    sensor_type = window.get_sensor_type()
+    if sensor_type == "Pvoltage_sensor":
+        LL = -0.00000001
+    
+    if sensor_type == "Bvoltage_sensor":
+        LL = -0.00000001
+        
+    if sensor_type == 'SSTEMP_sensor':
+        LL = -10
+    
+    if sensor_type == 'illuminance_sensor':
+        LL = -0.00000001
+        
+    if sensor_type == 'SSHUM_sensor':
+        LL = 10
+        
+    if sensor_type == 'PH_sensor':
+        LL = -20
+        
+    if sensor_type == 'WINDDIR_sensor':
+        LL = 0
+
+    return LL
+
+
+def get_max_time(window):
+    """
+    Retrieve the maximum allowed time for readings based on the sensor type.
+
+    Args:
+        window (SlidingWindow): The sliding window object containing sensor readings.
+
+    Returns:
+        timedelta: The maximum time allowed for readings from the sensor.
+    """
+    sensor_type = window.get_sensor_type()
+    max_time = 0
+    
+    if sensor_type == "Pvoltage_sensor":
+        max_time = timedelta(minutes=30)
+    
+    if sensor_type == "Bvoltage_sensor":
+        max_time = timedelta(minutes=30)
+        
+    if sensor_type == 'SSTEMP_sensor':
+        max_time = timedelta(minutes=30)
+    
+    if sensor_type == 'illuminance_sensor':
+        max_time = timedelta(minutes=30)
+        
+    if sensor_type == 'SSHUM_sensor':
+        max_time = timedelta(minutes=30)
+    
+    if sensor_type == 'PH_sensor':
+        max_time = timedelta(minutes=30)
+        
+    if sensor_type == 'WINDDIR_sensor':
+        max_time = timedelta(minutes=30)
+    
+    return max_time
+
+
+################################ READING / WRITING ################################
 
 def csv_to_datapoints(file_path):
     """
