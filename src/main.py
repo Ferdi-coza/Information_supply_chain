@@ -29,7 +29,7 @@ def main():
     last_changed = [0, 0]  #value, timestamp
     last_EMA = 0
     
-    if (len(sys.argv) != 3) or (sys.argv[1] not in ("params", "mqtt", "csv")):
+    if (len(sys.argv) not in (2, 3)) or (sys.argv[1] not in ("params", "mqtt", "csv")):
         print("Invalid program arguments")
         print("Run <python/python3 main.py params> to see parameter options")
         return
@@ -164,7 +164,8 @@ def run_csv(file_path, last_changed, last_EMA):
     CT_plus_win = SlidingWindow(10)
     CT_min_win = SlidingWindow(10)
     
-    while not window.is_full():
+    while not window.is_full() and data_points:
+        print(data_points)
         if not is_null(data_points[0]):
             window.add_reading(data_points.pop(0))
         else:
@@ -198,6 +199,8 @@ def run_csv(file_path, last_changed, last_EMA):
         no_err = CUSUM(CT_plus_win, CT_min_win, window.get_win_vals())
         if not no_err:
             print("Drift detected in CUSUM")
+        print(f"CT plus values: {CT_min_win.as_list()}")
+        print(f"CT minus values: {CT_min_win.as_list()}")
 
         while len(data_points) > 0 and is_null(data_points[0]):
             data_points.pop(0)
