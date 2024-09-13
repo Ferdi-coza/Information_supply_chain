@@ -131,7 +131,7 @@ def run_sensors(client, last_changed, last_EMA):
                 no_err = CUSUM(CT_plus_win, CT_min_win, window.get_win_vals())
                 if not no_err:
                     print("Drift detected in CUSUM")
-                print(f"CT plus values: {CT_min_win.as_list()}")
+                print(f"CT plus values: {CT_plus_win.as_list()}")
                 print(f"CT minus values: {CT_min_win.as_list()}")
                 
                 
