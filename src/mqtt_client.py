@@ -64,7 +64,7 @@ class MQTTClient:
             # Parse the last_changed timestamp if available
             if last_changed:
                 timestamp = parser.isoparse(last_changed)
-                human_time = timestamp.strftime('%H:%M:%S')
+                human_time = timestamp.strftime('%Y-%m-%d %H:%M:%S')
             else:
                 timestamp = None
                 human_time = None

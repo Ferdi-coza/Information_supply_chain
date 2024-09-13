@@ -44,7 +44,7 @@ def time_difference(time1, time2):
     Returns:
         timedelta: The difference between the two times as a timedelta object.
     """
-    time_format = "%H:%M:%S"
+    time_format = "%Y-%m-%d %H:%M:%S"
 
     t1 = datetime.strptime(time1, time_format)
     t2 = datetime.strptime(time2, time_format)
@@ -55,7 +55,7 @@ def time_difference(time1, time2):
     return time_diff
 
 
-def CUSUM(dev_plus_win, dev_minus_win, window_vals):
+def CUSUM(dev_plus_win, dev_minus_win, window_vals, last_smoothed):
     """
     Compute the next values for the CUSUM control chart using a window of deviations.
 
@@ -67,7 +67,7 @@ def CUSUM(dev_plus_win, dev_minus_win, window_vals):
     Returns:
         boolean: A boolean indicating if the process is in control.
     """
-    target = get_target(window_vals)
+    target = get_target(window_vals, last_smoothed)
     slack = get_slack(window_vals)
     control_lim = get_control_lim(window_vals)
     
@@ -99,9 +99,9 @@ def CUSUM(dev_plus_win, dev_minus_win, window_vals):
 
     # Check control limits
     if CT_plus_sum > control_lim or CT_minus_sum > control_lim:
-        return False  # Process is out of control
+        return False , target # Process is out of control
     else:
-        return True   # Process is in control
+        return True , target # Process is in control
 
 
 
@@ -133,7 +133,12 @@ def get_control_lim(sensor_readings, k=5):
     
     return k * std(sensor_readings)
 
-def get_target(window_vals):
+def get_target(window_vals, last_smoothed):
+    #return mean(window_vals)
+    return AES_target(window_vals, last_smoothed)
+    
+    
+def mean_target(window_vals, last_smoothed=0):
     """
     Calculate the target value as the mean of the window values.
 
@@ -144,3 +149,33 @@ def get_target(window_vals):
         float: The target value.
     """
     return mean(window_vals)
+    
+    
+
+def AES_target(window_vals, last_smoothed):
+    alpha = get_alpha(window_vals)
+    xt = window_vals[-1]
+    target = alpha * xt + (1-alpha)*last_smoothed
+    return target
+    
+    
+def get_alpha(window_vals):
+    std_norm = std(window_vals)
+    x_min = min(window_vals)
+    x_max = max(window_vals)
+    delta_x = x_max - x_min
+
+    # Calculate std_max as half the range
+    std_max = delta_x / 2.0
+
+    # Handle division by zero
+    if std_max == 0:
+        alpha = 0.0  # No variability in the window
+    else:
+        alpha = std_norm / std_max
+        # Ensure alpha is between 0 and 1
+        alpha = max(0, min(1, alpha))
+    
+    return alpha
+    
+    

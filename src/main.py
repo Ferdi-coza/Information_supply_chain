@@ -9,6 +9,7 @@ import os
 import sys
 import time
 import csv
+import pandas as pd
 
 def main():
     """
@@ -134,10 +135,6 @@ def run_sensors(client, last_changed, last_EMA):
                 print(f"CT plus values: {CT_plus_win.as_list()}")
                 print(f"CT minus values: {CT_min_win.as_list()}")
                 
-                
-            
-
-                
             client.clear_readings()
             time.sleep(1)
 
@@ -163,9 +160,9 @@ def run_csv(file_path, last_changed, last_EMA):
     window = SlidingWindow(10)
     CT_plus_win = SlidingWindow(10)
     CT_min_win = SlidingWindow(10)
+    target = data_points[0].value
     
     while not window.is_full() and data_points:
-        print(data_points)
         if not is_null(data_points[0]):
             window.add_reading(data_points.pop(0))
         else:
@@ -196,11 +193,13 @@ def run_csv(file_path, last_changed, last_EMA):
         med_filter(window, 3)
         
         #error detection with CUSUM
-        no_err = CUSUM(CT_plus_win, CT_min_win, window.get_win_vals())
+        no_err, target = CUSUM(CT_plus_win, CT_min_win, window.get_win_vals(), target)
         if not no_err:
-            print("Drift detected in CUSUM")
-        print(f"CT plus values: {CT_min_win.as_list()}")
-        print(f"CT minus values: {CT_min_win.as_list()}")
+            print(f"Drift detected in CUSUM at time: {window.as_list()[-1].time_stamp}")
+        
+        target_time = window.as_list()[-1].time_stamp
+        write_csv(target, target_time, "AES_method")
+        
 
         while len(data_points) > 0 and is_null(data_points[0]):
             data_points.pop(0)
@@ -394,5 +393,21 @@ def datapoints_to_csv(data_points, file_type, write_all):
             # Write the row to the CSV file
             csv_writer.writerow(row)
 
+
+def write_csv(value, timestamp, output_path):
+    output_path = "../data/" + output_path + ".csv"
+    # Create a DataFrame with the given value and timestamp
+    data = {'Target': [value], 'Time': [timestamp]}
+    df = pd.DataFrame(data)
+
+    # Check if the file already exists
+    if not os.path.exists(output_path):
+        # File doesn't exist, write with header
+        df.to_csv(output_path, mode='w', header=True, index=False)
+    else:
+        # File exists, append without writing the header
+        df.to_csv(output_path, mode='a', header=False, index=False)
+            
+            
 if __name__ == '__main__' :
     main()
